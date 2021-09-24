@@ -67,7 +67,8 @@ void send_arp(pcap_t* handle,const char* dmac,const char* smac, const char* sip,
 
 void arp_infection(pcap_t* handle,const char* s_mac, const char* s_ip, const char * t_ip,const char* a_mac)
 {
-    send_arp(handle,s_mac,a_mac,t_ip,s_mac,s_ip,ARP_REP);
+    for(int i=0;i<5;i++)    //just in case
+        send_arp(handle,s_mac,a_mac,t_ip,s_mac,s_ip,ARP_REP);
 }
 
 char * get_target_mac(uint8_t* mac)

